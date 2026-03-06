@@ -199,7 +199,14 @@ namespace PingMon
 
         private void RebuildHostCheckboxes()
         {
-            var activeHosts = _currentSnapshot.Keys.ToArray();
+            var activeHosts = _currentSnapshot.Keys
+                .OrderBy(h =>
+                {
+                    int idx = _config.Hosts.FindIndex(
+                        e => string.Equals(e.Host, h, StringComparison.OrdinalIgnoreCase));
+                    return idx < 0 ? int.MaxValue : idx;
+                })
+                .ToArray();
             bool changed = false;
 
             foreach (var host in activeHosts)
@@ -240,6 +247,18 @@ namespace PingMon
                 _hostChecks.Remove(host);
                 changed = true;
             }
+
+            _hostPanel.SuspendLayout();
+            for (int i = 0; i < activeHosts.Length; i++)
+            {
+                if (!_hostChecks.TryGetValue(activeHosts[i], out var chk)) continue;
+                if (_hostPanel.Controls.IndexOf(chk) != i)
+                {
+                    _hostPanel.Controls.SetChildIndex(chk, i);
+                    changed = true;
+                }
+            }
+            _hostPanel.ResumeLayout(true);
 
             if (changed) _hostPanel.Refresh();
         }
