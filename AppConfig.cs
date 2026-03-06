@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
@@ -16,6 +18,7 @@ namespace PingMon
         [DataMember] public int FailThreshold { get; set; } = 3;
         [DataMember] public int LatencyThresholdMs { get; set; } = 0;
         [DataMember] public bool Enabled { get; set; } = true;
+        [DataMember] public string CheckType { get; set; } = "ping";  // "ping" or "http"
     }
 
     [DataContract]
@@ -26,6 +29,7 @@ namespace PingMon
         [DataMember] public List<HostEntry> Hosts { get; set; } = new List<HostEntry>();
         [DataMember] public int PingIntervalSeconds { get; set; } = 10;
         [DataMember] public int PingTimeoutMs { get; set; } = 2000;
+        [DataMember] public int HttpCheckIntervalSeconds { get; set; } = 30;
         [DataMember] public int StatsWindowX { get; set; } = int.MinValue;
         [DataMember] public int StatsWindowY { get; set; } = int.MinValue;
     }
@@ -111,10 +115,11 @@ namespace PingMon
         private readonly object _lock = new object();
         private int _isBusy;  // 0=idle, 1=busy (Interlocked)
 
-        // Per-host state (indexed 0-4)
+        // Per-host state (indexed 0-9)
         private int[] _consecutiveFailures;
         private bool[] _isDown;
         private bool[] _latencyAlert;
+        private DateTime[] _lastHttpCheck;
         private HostStatus[] _results;
 
         public HostStatus[] Results
@@ -134,6 +139,7 @@ namespace PingMon
             _consecutiveFailures = new int[AppConfig.MaxHosts];
             _isDown = new bool[AppConfig.MaxHosts];
             _latencyAlert = new bool[AppConfig.MaxHosts];
+            _lastHttpCheck = new DateTime[AppConfig.MaxHosts];  // DateTime.MinValue = fire on first tick
             _results = new HostStatus[AppConfig.MaxHosts];
             for (int i = 0; i < AppConfig.MaxHosts; i++)
                 _results[i] = new HostStatus();
@@ -166,9 +172,13 @@ namespace PingMon
                 int count = Math.Min(hosts.Count, AppConfig.MaxHosts);
                 int timeout = _config.PingTimeoutMs;
 
-                // Fan out pings in parallel
+                // Fan out checks in parallel
+                var now = DateTime.UtcNow;
+                int httpInterval = _config.HttpCheckIntervalSeconds;
+
                 long[] roundtrips = new long[AppConfig.MaxHosts];
                 bool[] success = new bool[AppConfig.MaxHosts];
+                bool[] skipped = new bool[AppConfig.MaxHosts];
                 for (int i = 0; i < AppConfig.MaxHosts; i++) roundtrips[i] = -1;
 
                 if (count > 0)
@@ -183,22 +193,44 @@ namespace PingMon
                                 continue;
                             }
                             int idx = i;
-                            string host = hosts[i].Host;
+                            var entry = hosts[i];
+                            bool isHttp =
+                                string.Equals(entry.CheckType, "http", StringComparison.OrdinalIgnoreCase) ||
+                                entry.Host.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                                entry.Host.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+                            // HTTP hosts respect their own longer interval
+                            if (isHttp && (now - _lastHttpCheck[idx]).TotalSeconds < httpInterval)
+                            {
+                                skipped[idx] = true;
+                                countdown.Signal();
+                                continue;
+                            }
+                            if (isHttp) _lastHttpCheck[idx] = now;
+
                             ThreadPool.QueueUserWorkItem(_ =>
                             {
                                 try
                                 {
-                                    using (var ping = new Ping())
+                                    if (isHttp)
                                     {
-                                        var reply = ping.Send(host, timeout);
-                                        if (reply != null && reply.Status == IPStatus.Success)
+                                        long rtt = DoHttpCheck(entry.Host, timeout);
+                                        if (rtt >= 0) { roundtrips[idx] = rtt; success[idx] = true; }
+                                    }
+                                    else
+                                    {
+                                        using (var ping = new Ping())
                                         {
-                                            roundtrips[idx] = reply.RoundtripTime;
-                                            success[idx] = true;
+                                            var reply = ping.Send(entry.Host, timeout);
+                                            if (reply != null && reply.Status == IPStatus.Success)
+                                            {
+                                                roundtrips[idx] = reply.RoundtripTime;
+                                                success[idx] = true;
+                                            }
                                         }
                                     }
                                 }
-                                catch { /* ping failed */ }
+                                catch { /* check failed */ }
                                 finally { countdown.Signal(); }
                             });
                         }
@@ -221,6 +253,9 @@ namespace PingMon
                             _results[i] = new HostStatus { Host = h, DisplayName = n, IsEnabled = false };
                             continue;
                         }
+
+                        // HTTP host not due this cycle — carry forward previous result unchanged
+                        if (skipped[i]) continue;
 
                         var entry = hosts[i];
                         bool ok = success[i];
@@ -293,6 +328,64 @@ namespace PingMon
             {
                 Interlocked.Exchange(ref _isBusy, 0);
             }
+        }
+
+        private static readonly string[] _userAgents =
+        {
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        };
+
+        private static readonly string[] _acceptLanguages =
+        {
+            "en-US,en;q=0.9",
+            "en-GB,en;q=0.9",
+            "en-US,en;q=0.8",
+            "en-CA,en;q=0.9,fr-CA;q=0.7",
+        };
+
+        private static readonly Random _rng = new Random();
+
+        private static long DoHttpCheck(string url, int timeoutMs)
+        {
+            // Ensure a scheme is present — bare hostnames toggled to HTTP get https://
+            if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                url = "https://" + url;
+
+            string ua, lang;
+            lock (_rng)
+            {
+                ua   = _userAgents[_rng.Next(_userAgents.Length)];
+                lang = _acceptLanguages[_rng.Next(_acceptLanguages.Length)];
+            }
+            try
+            {
+                var req = (HttpWebRequest)WebRequest.Create(url);
+                req.Timeout = timeoutMs;
+                req.AllowAutoRedirect = true;
+                req.KeepAlive = false;  // fresh TCP connection every time — no session continuity
+                req.Method = "GET";
+                req.UserAgent = ua;
+                req.Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8";
+                req.Headers["Accept-Language"] = lang;
+                req.Headers["Accept-Encoding"] = "gzip, deflate, br";
+                req.Headers["Cache-Control"] = "no-cache";
+                req.Headers["Pragma"] = "no-cache";
+                var sw = Stopwatch.StartNew();
+                using (var resp = (HttpWebResponse)req.GetResponse())
+                {
+                    sw.Stop();
+                    return sw.ElapsedMilliseconds;
+                }
+            }
+            catch { return -1L; }
         }
 
         public void Dispose()

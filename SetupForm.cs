@@ -126,7 +126,7 @@ namespace PingMon
 
             var lblHint = new Label
             {
-                Text = "Trace a route to discover hops to monitor, or add hosts manually. Select up to " + AppConfig.MaxHosts + ".",
+                Text = "Trace a route to discover hops to monitor, or add hosts/URLs manually. Select up to " + AppConfig.MaxHosts + ".",
                 Left = 12, Top = y, Width = 456, AutoSize = false,
                 Tag = "gray"
             };
@@ -172,10 +172,21 @@ namespace PingMon
                 GridLines = true,
                 HeaderStyle = ColumnHeaderStyle.Nonclickable
             };
-            _listView.Columns.Add("IP / Host", 300);
-            _listView.Columns.Add("Source", 140);
+            _listView.Columns.Add("IP / Host", 220);
+            _listView.Columns.Add("Source", 110);
+            _listView.Columns.Add("Type", 80);
+            _listView.MouseClick += ListViewType_Click;
             Controls.Add(_listView);
             y += 208;
+
+            var lblTypeHint = new Label
+            {
+                Text = "Click the Type column to toggle Ping \u2194 HTTP. Use https://... URLs for HTTP checks.",
+                Left = 12, Top = y, Width = 456, Height = 16, AutoSize = false,
+                Tag = "gray"
+            };
+            Controls.Add(lblTypeHint);
+            y += 20;
 
             // Manual add row
             var lblManual = new Label { Text = "Add host:", Left = 12, Top = y + 3, Width = 70, AutoSize = false };
@@ -299,10 +310,21 @@ namespace PingMon
             foreach (ListViewItem existing in _listView.Items)
                 if (string.Equals(existing.Text, ip, StringComparison.OrdinalIgnoreCase)) return;
 
+            bool isHttp = ip.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                          ip.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
             var lvi = new ListViewItem(ip);
             lvi.SubItems.Add(source);
+            lvi.SubItems.Add(isHttp ? "HTTP" : "Ping");
             lvi.Checked = true;
             _listView.Items.Add(lvi);
+        }
+
+        private void ListViewType_Click(object sender, MouseEventArgs e)
+        {
+            var info = _listView.HitTest(e.X, e.Y);
+            if (info.Item == null || info.SubItem == null) return;
+            if (info.Item.SubItems.IndexOf(info.SubItem) != 2) return;
+            info.SubItem.Text = info.SubItem.Text == "HTTP" ? "Ping" : "HTTP";
         }
 
         private void BtnAddManual_Click(object sender, EventArgs e)
@@ -310,7 +332,7 @@ namespace PingMon
             string host = _manualHostBox.Text.Trim();
             if (string.IsNullOrEmpty(host))
             {
-                MessageBox.Show("Please enter a host or IP address.", "Add Host",
+                MessageBox.Show("Please enter a host, IP address, or URL (e.g. https://example.com).", "Add Host",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
@@ -333,28 +355,36 @@ namespace PingMon
 
         private void BtnSaveStart_Click(object sender, EventArgs e)
         {
-            var selected = new System.Collections.Generic.List<string>();
+            var checkedItems = new System.Collections.Generic.List<ListViewItem>();
             foreach (ListViewItem item in _listView.Items)
-                if (item.Checked) selected.Add(item.Text);
+                if (item.Checked) checkedItems.Add(item);
 
-            if (selected.Count == 0)
+            if (checkedItems.Count == 0)
             {
                 MessageBox.Show("Please select at least one host to monitor.", "No Hosts Selected",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            if (selected.Count > AppConfig.MaxHosts)
+            if (checkedItems.Count > AppConfig.MaxHosts)
             {
                 MessageBox.Show(
-                    string.Format("Only up to {0} hosts can be monitored. You have {1} checked. Please uncheck the extras.", AppConfig.MaxHosts, selected.Count),
+                    string.Format("Only up to {0} hosts can be monitored. You have {1} checked. Please uncheck the extras.", AppConfig.MaxHosts, checkedItems.Count),
                     "Too Many Hosts", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             var config = new AppConfig { PingIntervalSeconds = 10, PingTimeoutMs = 2000 };
-            foreach (string host in selected)
-                config.Hosts.Add(new HostEntry { Host = host, Enabled = true, FailThreshold = 3, LatencyThresholdMs = 0 });
+            foreach (ListViewItem item in checkedItems)
+            {
+                string host = item.Text;
+                bool isHttp = item.SubItems.Count > 2 && item.SubItems[2].Text == "HTTP";
+                config.Hosts.Add(new HostEntry
+                {
+                    Host = host, Enabled = true, FailThreshold = 3, LatencyThresholdMs = 0,
+                    CheckType = isHttp ? "http" : "ping"
+                });
+            }
 
             ResultConfig = config;
             DialogResult = DialogResult.OK;
