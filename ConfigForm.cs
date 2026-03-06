@@ -92,6 +92,9 @@ namespace PingMon
         private ComboBox[] _typeDropdowns = new ComboBox[AppConfig.MaxHosts];
         private NumericUpDown[] _failNums = new NumericUpDown[AppConfig.MaxHosts];
         private NumericUpDown[] _latNums = new NumericUpDown[AppConfig.MaxHosts];
+        private Label[] _dragHandles = new Label[AppConfig.MaxHosts];
+        private Panel _dropIndicator;
+        private int _dropTargetRow = -1;
 
         public ConfigForm(AppConfig config)
         {
@@ -209,6 +212,22 @@ namespace PingMon
                     Value = Clamp(entry?.LatencyThresholdMs ?? 0, 0, 30000)
                 };
 
+                int capturedI = i;
+                _dragHandles[i] = new Label
+                {
+                    Text = "\u2261",
+                    Left = 0, Top = y + 3, Width = 12, Height = 22,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Cursor = Cursors.SizeAll,
+                    Tag = "gray"
+                };
+                _dragHandles[i].MouseDown += (s, e) =>
+                {
+                    if (e.Button == MouseButtons.Left)
+                        DoDragDrop(capturedI, DragDropEffects.Move);
+                };
+
+                Controls.Add(_dragHandles[i]);
                 Controls.Add(_enabledChecks[i]);
                 Controls.Add(_hostBoxes[i]);
                 Controls.Add(_nameBoxes[i]);
@@ -218,6 +237,21 @@ namespace PingMon
 
                 y += 30;
             }
+
+            // --- Drop indicator ---
+            _dropIndicator = new Panel
+            {
+                Height = 2, Left = 0, Width = 532,
+                BackColor = Color.DodgerBlue, Visible = false
+            };
+            Controls.Add(_dropIndicator);
+            _dropIndicator.BringToFront();
+
+            AllowDrop = true;
+            DragEnter += (s, e) => { if (e.Data.GetDataPresent(typeof(int))) e.Effect = DragDropEffects.Move; };
+            DragLeave += (s, e) => { _dropIndicator.Visible = false; _dropTargetRow = -1; };
+            DragOver  += ConfigForm_DragOver;
+            DragDrop  += ConfigForm_DragDrop;
 
             // --- Hint ---
             var hint = new Label
@@ -363,6 +397,70 @@ namespace PingMon
                 else
                     key.DeleteValue(AppName, throwOnMissingValue: false);
             }
+        }
+
+        private void ConfigForm_DragOver(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(typeof(int))) { e.Effect = DragDropEffects.None; return; }
+            e.Effect = DragDropEffects.Move;
+
+            var pt = PointToClient(new Point(e.X, e.Y));
+            int firstRowTop = _enabledChecks[0].Top - 2;
+            int gap = (int)Math.Round((pt.Y - firstRowTop) / 30.0);
+            gap = Math.Max(0, Math.Min(AppConfig.MaxHosts, gap));
+
+            if (gap == _dropTargetRow) return;
+            _dropTargetRow = gap;
+            _dropIndicator.Top = firstRowTop + gap * 30 - 1;
+            _dropIndicator.Visible = true;
+        }
+
+        private void ConfigForm_DragDrop(object sender, DragEventArgs e)
+        {
+            _dropIndicator.Visible = false;
+            if (!e.Data.GetDataPresent(typeof(int))) return;
+
+            int fromRow = (int)e.Data.GetData(typeof(int));
+            int gap     = _dropTargetRow;
+            _dropTargetRow = -1;
+
+            if (gap < 0) return;
+            int toRow = gap > fromRow ? gap - 1 : gap;
+            if (toRow == fromRow || toRow < 0 || toRow >= AppConfig.MaxHosts) return;
+
+            MoveRow(fromRow, toRow);
+        }
+
+        private void MoveRow(int from, int to)
+        {
+            bool    srcEnabled = _enabledChecks[from].Checked;
+            string  srcHost    = _hostBoxes[from].Text;
+            string  srcName    = _nameBoxes[from].Text;
+            int     srcType    = _typeDropdowns[from].SelectedIndex;
+            decimal srcFail    = _failNums[from].Value;
+            decimal srcLat     = _latNums[from].Value;
+
+            if (from < to)
+                for (int i = from; i < to; i++) CopyRow(i + 1, i);
+            else
+                for (int i = from; i > to; i--) CopyRow(i - 1, i);
+
+            _enabledChecks[to].Checked       = srcEnabled;
+            _hostBoxes[to].Text              = srcHost;
+            _nameBoxes[to].Text              = srcName;
+            _typeDropdowns[to].SelectedIndex = srcType;
+            _failNums[to].Value              = srcFail;
+            _latNums[to].Value               = srcLat;
+        }
+
+        private void CopyRow(int src, int dst)
+        {
+            _enabledChecks[dst].Checked       = _enabledChecks[src].Checked;
+            _hostBoxes[dst].Text              = _hostBoxes[src].Text;
+            _nameBoxes[dst].Text              = _nameBoxes[src].Text;
+            _typeDropdowns[dst].SelectedIndex = _typeDropdowns[src].SelectedIndex;
+            _failNums[dst].Value              = _failNums[src].Value;
+            _latNums[dst].Value               = _latNums[src].Value;
         }
 
         private static decimal Clamp(int value, int min, int max)
