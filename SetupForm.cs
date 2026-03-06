@@ -352,7 +352,7 @@ namespace PingMon
                 return;
             }
 
-            var config = new AppConfig { PingIntervalSeconds = 30, PingTimeoutMs = 2000 };
+            var config = new AppConfig { PingIntervalSeconds = 10, PingTimeoutMs = 2000 };
             foreach (string host in selected)
                 config.Hosts.Add(new HostEntry { Host = host, Enabled = true, FailThreshold = 3, LatencyThresholdMs = 0 });
 
