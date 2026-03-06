@@ -63,6 +63,9 @@ namespace PingMon
             _config  = config;
 
             Text = "PingMon Stats";
+            using (var s = System.Reflection.Assembly.GetExecutingAssembly()
+                               .GetManifestResourceStream("PingMon.PingMon.ico"))
+                if (s != null) Icon = new Icon(s);
             FormBorderStyle = FormBorderStyle.Sizable;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;

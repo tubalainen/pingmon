@@ -99,6 +99,9 @@ namespace PingMon
         public ConfigForm(AppConfig config)
         {
             Text = "PingMon Configuration";
+            using (var s = System.Reflection.Assembly.GetExecutingAssembly()
+                               .GetManifestResourceStream("PingMon.PingMon.ico"))
+                if (s != null) Icon = new Icon(s);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
