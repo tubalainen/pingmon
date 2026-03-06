@@ -1,10 +1,10 @@
 # PingMon
 
-A lightweight Windows system tray application that continuously monitors network hosts via ICMP ping and alerts you when they go down or become slow.
+A lightweight Windows system tray application that continuously monitors network hosts via ICMP ping or HTTP/HTTPS requests and alerts you when they go down or become slow.
 
 ## Features
 
-- Monitor up to 10 hosts simultaneously
+- Monitor up to 10 hosts simultaneously via **ICMP ping** or **HTTP/HTTPS**
 - System tray icon changes color to reflect overall network health
 - Balloon tip notifications when hosts go down or recover
 - Live stats graph with per-host latency history (up to 2000 data points)
@@ -43,7 +43,7 @@ The output is written to `bin\Release\net48\PingMon.exe`.
 On first launch, the setup wizard opens automatically. It can:
 
 - **Discover hosts via traceroute** — runs a traceroute to a destination you specify and lists every hop as a candidate host to monitor.
-- **Manual entry** — type any hostname or IP address directly.
+- **Manual entry** — type any hostname, IP address, or URL (e.g. `https://example.com/health`) directly.
 
 Select the hosts you want to monitor and click **Finish**. PingMon starts immediately and appears in the system tray.
 
@@ -84,17 +84,23 @@ Open **Configure** from the tray menu to adjust settings.
 | Field | Description |
 |---|---|
 | En | Enable/disable monitoring for this host |
-| Host/IP | Hostname or IP address to ping |
+| Host/IP/URL | Hostname, IP address, or full URL (e.g. `https://example.com/health`) |
 | Name | Optional display name (shown in tray and stats) |
+| Type | **Ping** — ICMP ping; **HTTP** — HTTP/HTTPS GET request |
 | Fail # | Consecutive failures before the host is considered down (default: 3) |
 | Latency (ms) | Alert threshold in milliseconds; 0 = disabled (default: 0) |
+
+**HTTP checks** issue a GET request to the URL and treat any successful response (2xx after redirects) as up; 4xx/5xx responses and SSL errors count as down. The measured value is the total response time in milliseconds. URLs beginning with `http://` or `https://` are automatically detected as HTTP checks.
+
+To reduce load on monitored servers, HTTP checks use a separate, longer interval configured via **HTTP interval (sec)** (default: 30 seconds). Each request rotates through a pool of realistic browser User-Agent strings and headers, and opens a fresh TCP connection every time to avoid leaving a detectable session pattern.
 
 #### Global settings
 
 | Field | Description |
 |---|---|
-| Ping interval | Seconds between ping cycles (default: 10, minimum: 1) |
-| Timeout | Milliseconds to wait for each ping reply (default: 2000) |
+| Ping interval | Seconds between ICMP ping cycles (default: 10, minimum: 1) |
+| Timeout | Milliseconds to wait for each check reply (default: 2000) |
+| HTTP interval | Seconds between HTTP checks (default: 30, minimum: 10) — independent of ping interval |
 
 #### Other options
 

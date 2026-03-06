@@ -54,6 +54,10 @@ namespace PingMon
                         nud.BackColor = inputBack;
                         nud.ForeColor = text;
                         break;
+                    case ComboBox cmb:
+                        cmb.BackColor = inputBack;
+                        cmb.ForeColor = text;
+                        break;
                     case Button btn:
                         btn.FlatStyle = back == SystemColors.Control
                             ? FlatStyle.Standard
@@ -80,10 +84,12 @@ namespace PingMon
 
         private NumericUpDown _intervalNum;
         private NumericUpDown _timeoutNum;
+        private NumericUpDown _httpIntervalNum;
         private CheckBox _chkAutoStart;
         private CheckBox[] _enabledChecks = new CheckBox[AppConfig.MaxHosts];
         private TextBox[] _hostBoxes = new TextBox[AppConfig.MaxHosts];
         private TextBox[] _nameBoxes = new TextBox[AppConfig.MaxHosts];
+        private ComboBox[] _typeDropdowns = new ComboBox[AppConfig.MaxHosts];
         private NumericUpDown[] _failNums = new NumericUpDown[AppConfig.MaxHosts];
         private NumericUpDown[] _latNums = new NumericUpDown[AppConfig.MaxHosts];
 
@@ -95,7 +101,7 @@ namespace PingMon
             MinimizeBox = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(660, 320);
+            ClientSize = new Size(760, 320);
             Font = new Font("Segoe UI", 9f);
 
             BuildUI(config);
@@ -116,34 +122,44 @@ namespace PingMon
             // --- Global settings row ---
             int y = 12;
 
-            var lblInterval = new Label { Text = "Ping interval (sec):", Left = 10, Top = y + 3, Width = 140, AutoSize = false };
+            var lblInterval = new Label { Text = "Ping interval (sec):", Left = 10, Top = y + 3, Width = 130, AutoSize = false };
             _intervalNum = new NumericUpDown
             {
-                Left = 155, Top = y, Width = 70,
+                Left = 145, Top = y, Width = 60,
                 Minimum = 1, Maximum = 3600, Value = Clamp(config.PingIntervalSeconds, 1, 3600)
             };
 
-            var lblTimeout = new Label { Text = "Timeout (ms):", Left = 240, Top = y + 3, Width = 110, AutoSize = false };
+            var lblTimeout = new Label { Text = "Timeout (ms):", Left = 215, Top = y + 3, Width = 90, AutoSize = false };
             _timeoutNum = new NumericUpDown
             {
-                Left = 355, Top = y, Width = 80,
+                Left = 310, Top = y, Width = 70,
                 Minimum = 100, Maximum = 30000, Value = Clamp(config.PingTimeoutMs, 100, 30000)
+            };
+
+            var lblHttpInterval = new Label { Text = "HTTP interval (sec):", Left = 392, Top = y + 3, Width = 125, AutoSize = false };
+            _httpIntervalNum = new NumericUpDown
+            {
+                Left = 520, Top = y, Width = 70,
+                Minimum = 10, Maximum = 3600, Value = Clamp(config.HttpCheckIntervalSeconds, 10, 3600)
             };
 
             Controls.Add(lblInterval);
             Controls.Add(_intervalNum);
             Controls.Add(lblTimeout);
             Controls.Add(_timeoutNum);
+            Controls.Add(lblHttpInterval);
+            Controls.Add(_httpIntervalNum);
 
             y += 34;
 
             // --- Column headers ---
-            var headerPanel = new Panel { Left = 10, Top = y, Width = 640, Height = 20 };
-            headerPanel.Controls.Add(new Label { Text = "En",         Left = 4,   Top = 2, Width = 28,  ForeColor = SystemColors.GrayText, Tag = "gray" });
-            headerPanel.Controls.Add(new Label { Text = "Host / IP", Left = 26,  Top = 2, Width = 130 });
-            headerPanel.Controls.Add(new Label { Text = "Name",       Left = 162, Top = 2, Width = 130 });
-            headerPanel.Controls.Add(new Label { Text = "Fail #",    Left = 298, Top = 2, Width = 55,  ForeColor = SystemColors.GrayText, Tag = "gray" });
-            headerPanel.Controls.Add(new Label { Text = "Latency ms",Left = 360, Top = 2, Width = 80,  ForeColor = SystemColors.GrayText, Tag = "gray" });
+            var headerPanel = new Panel { Left = 10, Top = y, Width = 740, Height = 20 };
+            headerPanel.Controls.Add(new Label { Text = "En",           Left = 4,   Top = 2, Width = 28,  ForeColor = SystemColors.GrayText, Tag = "gray" });
+            headerPanel.Controls.Add(new Label { Text = "Host / IP / URL", Left = 26, Top = 2, Width = 150 });
+            headerPanel.Controls.Add(new Label { Text = "Name",         Left = 182, Top = 2, Width = 120 });
+            headerPanel.Controls.Add(new Label { Text = "Type",         Left = 308, Top = 2, Width = 65,  ForeColor = SystemColors.GrayText, Tag = "gray" });
+            headerPanel.Controls.Add(new Label { Text = "Fail #",       Left = 379, Top = 2, Width = 55,  ForeColor = SystemColors.GrayText, Tag = "gray" });
+            headerPanel.Controls.Add(new Label { Text = "Latency ms",   Left = 440, Top = 2, Width = 80,  ForeColor = SystemColors.GrayText, Tag = "gray" });
             Controls.Add(headerPanel);
             y += 22;
 
@@ -160,26 +176,35 @@ namespace PingMon
 
                 _hostBoxes[i] = new TextBox
                 {
-                    Left = 36, Top = y, Width = 130,
+                    Left = 36, Top = y, Width = 150,
                     Text = entry?.Host ?? ""
                 };
 
                 _nameBoxes[i] = new TextBox
                 {
-                    Left = 172, Top = y, Width = 130,
+                    Left = 192, Top = y, Width = 120,
                     Text = entry?.Name ?? ""
                 };
 
+                _typeDropdowns[i] = new ComboBox
+                {
+                    Left = 318, Top = y, Width = 65,
+                    DropDownStyle = ComboBoxStyle.DropDownList
+                };
+                _typeDropdowns[i].Items.AddRange(new object[] { "Ping", "HTTP" });
+                _typeDropdowns[i].SelectedIndex =
+                    string.Equals(entry?.CheckType, "http", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+
                 _failNums[i] = new NumericUpDown
                 {
-                    Left = 308, Top = y, Width = 55,
+                    Left = 389, Top = y, Width = 55,
                     Minimum = 1, Maximum = 20,
                     Value = Clamp(entry?.FailThreshold ?? 3, 1, 20)
                 };
 
                 _latNums[i] = new NumericUpDown
                 {
-                    Left = 370, Top = y, Width = 80,
+                    Left = 450, Top = y, Width = 80,
                     Minimum = 0, Maximum = 30000,
                     Value = Clamp(entry?.LatencyThresholdMs ?? 0, 0, 30000)
                 };
@@ -187,6 +212,7 @@ namespace PingMon
                 Controls.Add(_enabledChecks[i]);
                 Controls.Add(_hostBoxes[i]);
                 Controls.Add(_nameBoxes[i]);
+                Controls.Add(_typeDropdowns[i]);
                 Controls.Add(_failNums[i]);
                 Controls.Add(_latNums[i]);
 
@@ -197,7 +223,7 @@ namespace PingMon
             var hint = new Label
             {
                 Text = "Fail # = consecutive failures before alert.  Latency ms = 0 disables latency alerting.",
-                Left = 10, Top = y + 4, Width = 540, ForeColor = SystemColors.GrayText, AutoSize = false,
+                Left = 10, Top = y + 4, Width = 640, ForeColor = SystemColors.GrayText, AutoSize = false,
                 Tag = "gray"
             };
             Controls.Add(hint);
@@ -224,14 +250,14 @@ namespace PingMon
             var btnOk = new Button
             {
                 Text = "OK", DialogResult = DialogResult.OK,
-                Left = 490, Top = y + 4, Width = 75
+                Left = 590, Top = y + 4, Width = 75
             };
             btnOk.Click += BtnOk_Click;
 
             var btnCancel = new Button
             {
                 Text = "Cancel", DialogResult = DialogResult.Cancel,
-                Left = 575, Top = y + 4, Width = 75
+                Left = 675, Top = y + 4, Width = 75
             };
 
             Controls.Add(btnErase);
@@ -240,7 +266,7 @@ namespace PingMon
             AcceptButton = btnOk;
             CancelButton = btnCancel;
 
-            ClientSize = new Size(660, y + 40);
+            ClientSize = new Size(760, y + 40);
         }
 
         private void BtnOk_Click(object sender, EventArgs e)
@@ -281,6 +307,7 @@ namespace PingMon
                         Host = host,
                         Name = _nameBoxes[i].Text.Trim(),
                         Enabled = enabled,
+                        CheckType = _typeDropdowns[i].SelectedIndex == 1 ? "http" : "ping",
                         FailThreshold = (int)_failNums[i].Value,
                         LatencyThresholdMs = (int)_latNums[i].Value
                     });
@@ -291,7 +318,8 @@ namespace PingMon
             {
                 Hosts = hosts,
                 PingIntervalSeconds = (int)_intervalNum.Value,
-                PingTimeoutMs = (int)_timeoutNum.Value
+                PingTimeoutMs = (int)_timeoutNum.Value,
+                HttpCheckIntervalSeconds = (int)_httpIntervalNum.Value
             };
 
             // Apply auto-start registry setting
