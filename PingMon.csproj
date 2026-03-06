@@ -9,5 +9,9 @@
     <LangVersion>7.3</LangVersion>
     <Optimize>true</Optimize>
     <PlatformTarget>AnyCPU</PlatformTarget>
+    <ApplicationIcon>PingMon.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="PingMon.ico" />
+  </ItemGroup>
 </Project>
