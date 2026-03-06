@@ -284,7 +284,7 @@ namespace PingMon
                 if (kv.Value.Length > 0 && kv.Value[0].Time < oldest)
                     oldest = kv.Value[0].Time;
             }
-            double windowSec = Math.Max(60.0, (now - oldest).TotalSeconds);
+            double windowSec = Math.Min(7200.0, Math.Max(60.0, (now - oldest).TotalSeconds));
 
             // --- Y axis: data-range auto-scale ---
             long minRtt = long.MaxValue, maxRtt = 0;
@@ -292,7 +292,7 @@ namespace PingMon
             {
                 if (!_hostChecks.TryGetValue(kv.Key, out var chk) || !chk.Checked) continue;
                 foreach (var pt in kv.Value)
-                    if (pt.RoundtripMs >= 0)
+                    if (pt.RoundtripMs >= 0 && (now - pt.Time).TotalSeconds <= windowSec)
                     {
                         if (pt.RoundtripMs < minRtt) minRtt = pt.RoundtripMs;
                         if (pt.RoundtripMs > maxRtt) maxRtt = pt.RoundtripMs;
